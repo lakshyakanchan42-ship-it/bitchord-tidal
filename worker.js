@@ -341,7 +341,7 @@ if (url.pathname === "/search") {
   if (!query) {
     return json({
       success: false,
-      error: "Missing search query. Use /search?q=Espresso"
+      error: "Missing search query"
     }, 400);
   }
 
@@ -402,47 +402,92 @@ if (url.pathname === "/search") {
 
   const included = tidalData.included || [];
 
+  const artists = {};
+
+  for (const item of included) {
+    if (item.type === "artists") {
+      artists[item.id] =
+        item.attributes?.name || "Unknown Artist";
+    }
+  }
+
+  const albums = {};
+
+  for (const item of included) {
+    if (item.type === "albums") {
+      albums[item.id] =
+        item.attributes?.title || "Unknown Album";
+    }
+  }
+
   const tracks = included
     .filter(item => item.type === "tracks")
     .map(track => {
       const attributes = track.attributes || {};
+      const relationships = track.relationships || {};
+
+      const artistId =
+        relationships.artists?.data?.[0]?.id;
+
+      const albumId =
+        relationships.albums?.data?.[0]?.id;
+
+      const durationString =
+        attributes.duration || "";
+
+      const durationMatch =
+        durationString.match(
+          /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?/
+        );
+
+      let duration = 0;
+
+      if (durationMatch) {
+        duration =
+          Number(durationMatch[1] || 0) * 3600 +
+          Number(durationMatch[2] || 0) * 60 +
+          Number(durationMatch[3] || 0);
+      }
+
+      const mediaTags =
+        attributes.mediaTags || [];
+
+      let audioQuality = "HIGH";
+      let format = "aac";
+
+      if (
+        mediaTags.includes("HIRES_LOSSLESS") ||
+        mediaTags.includes("LOSSLESS")
+      ) {
+        audioQuality = mediaTags.includes("HIRES_LOSSLESS")
+          ? "HIRES_LOSSLESS"
+          : "LOSSLESS";
+
+        format = "flac";
+      }
+
+      if (mediaTags.includes("DOLBY_ATMOS")) {
+        audioQuality = "DOLBY_ATMOS";
+        format = "eac3-joc";
+      }
 
       return {
         id: track.id,
-        title: attributes.title || null,
-        duration: attributes.duration || null,
-        explicit: attributes.explicit || false,
-        releaseDate: attributes.releaseDate || null,
-        mediaTags: attributes.mediaTags || [],
-        accessType: attributes.accessType || null
+        title: attributes.title || "Unknown Title",
+        artist:
+          artists[artistId] || "Unknown Artist",
+        album:
+          albums[albumId] || "Unknown Album",
+        duration,
+        format,
+        audioQuality
       };
     });
 
-  const artists = included
-    .filter(item => item.type === "artists")
-    .map(artist => ({
-      id: artist.id,
-      name: artist.attributes?.name || null
-    }));
-
-  const albums = included
-    .filter(item => item.type === "albums")
-    .map(album => ({
-      id: album.id,
-      title: album.attributes?.title || null,
-      releaseDate: album.attributes?.releaseDate || null
-    }));
-
   return json({
-    success: true,
-    query,
-    results: {
-      tracks,
-      artists,
-      albums
-    }
+    tracks
   });
-      }
+         }
     return json({
       error: "Endpoint not implemented yet"
     }, 404);
