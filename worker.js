@@ -402,7 +402,121 @@ if (url.pathname === "/search") {
 
   const included = tidalData.included || [];
 
-  const artists = {};
+const searchTracks = included.filter(
+  item => item.type === "tracks"
+);
+
+const tracks = await Promise.all(
+  searchTracks.map(async track => {
+    const attributes = track.attributes || {};
+
+    let artist = "Unknown Artist";
+    let album = "Unknown Album";
+
+    try {
+      const trackURL = new URL(
+        `https://openapi.tidal.com/v2/tracks/${track.id}`
+      );
+
+      trackURL.searchParams.set(
+        "include",
+        "artists,albums"
+      );
+
+      const trackResponse = await fetch(
+        trackURL.toString(),
+        {
+          method: "GET",
+          headers: {
+            "Authorization":
+              `Bearer ${tokens.access_token}`,
+            "Accept":
+              "application/vnd.api+json"
+          }
+        }
+      );
+
+      if (trackResponse.ok) {
+        const trackData =
+          await trackResponse.json();
+
+        const trackIncluded =
+          trackData.included || [];
+
+        const artistItem =
+          trackIncluded.find(
+            item => item.type === "artists"
+          );
+
+        const albumItem =
+          trackIncluded.find(
+            item => item.type === "albums"
+          );
+
+        artist =
+          artistItem?.attributes?.name ||
+          "Unknown Artist";
+
+        album =
+          albumItem?.attributes?.title ||
+          "Unknown Album";
+      }
+    } catch (error) {
+      // Keep fallback names if metadata lookup fails.
+    }
+
+    const durationString =
+      attributes.duration || "";
+
+    const durationMatch =
+      durationString.match(
+        /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?/
+      );
+
+    let duration = 0;
+
+    if (durationMatch) {
+      duration =
+        Number(durationMatch[1] || 0) * 3600 +
+        Number(durationMatch[2] || 0) * 60 +
+        Number(durationMatch[3] || 0);
+    }
+
+    const mediaTags =
+      attributes.mediaTags || [];
+
+    let audioQuality = "HIGH";
+    let format = "aac";
+
+    if (
+      mediaTags.includes("HIRES_LOSSLESS") ||
+      mediaTags.includes("LOSSLESS")
+    ) {
+      audioQuality =
+        mediaTags.includes("HIRES_LOSSLESS")
+          ? "HIRES_LOSSLESS"
+          : "LOSSLESS";
+
+      format = "flac";
+    }
+
+    if (mediaTags.includes("DOLBY_ATMOS")) {
+      audioQuality = "DOLBY_ATMOS";
+      format = "eac3-joc";
+    }
+
+    return {
+      id: track.id,
+      title:
+        attributes.title || "Unknown Title",
+      artist,
+      album,
+      duration,
+      format,
+      audioQuality
+    };
+  })
+);
 
   for (const item of included) {
     if (item.type === "artists") {
