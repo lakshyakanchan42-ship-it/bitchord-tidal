@@ -1,4 +1,5 @@
 const CLIENT_ID = "ewgbhkBRUqcZbi3e";
+
 const REDIRECT_URI =
   "https://bitchord-tidal.lakshyakanchan42.workers.dev/oauth/callback";
 
@@ -27,6 +28,7 @@ function json(data, status = 200) {
 
 function base64url(bytes) {
   let binary = "";
+
   for (const byte of bytes) {
     binary += String.fromCharCode(byte);
   }
@@ -39,6 +41,7 @@ function base64url(bytes) {
 
 async function createPKCE() {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
+
   const verifier = base64url(bytes);
 
   const hash = await crypto.subtle.digest(
@@ -73,7 +76,10 @@ export default {
     }
 
     if (url.pathname === "/health") {
-      return json({ status: "ok" });
+      return json({
+        status: "ok",
+        kv: Boolean(env.KV)
+      });
     }
 
     /*
@@ -92,19 +98,41 @@ export default {
         "https://login.tidal.com/authorize"
       );
 
-      authURL.searchParams.set("response_type", "code");
-      authURL.searchParams.set("client_id", CLIENT_ID);
-      authURL.searchParams.set("redirect_uri", REDIRECT_URI);
-      authURL.searchParams.set("scope", SCOPES);
-      authURL.searchParams.set("code_challenge_method", "S256");
-      authURL.searchParams.set("code_challenge", challenge);
-      authURL.searchParams.set("state", state);
+      authURL.searchParams.set(
+        "response_type",
+        "code"
+      );
 
-      /*
-       * Temporarily store PKCE values in a cookie.
-       * We'll replace this with a more robust session
-       * mechanism after the first OAuth test.
-       */
+      authURL.searchParams.set(
+        "client_id",
+        CLIENT_ID
+      );
+
+      authURL.searchParams.set(
+        "redirect_uri",
+        REDIRECT_URI
+      );
+
+      authURL.searchParams.set(
+        "scope",
+        SCOPES
+      );
+
+      authURL.searchParams.set(
+        "code_challenge_method",
+        "S256"
+      );
+
+      authURL.searchParams.set(
+        "code_challenge",
+        challenge
+      );
+
+      authURL.searchParams.set(
+        "state",
+        state
+      );
+
       const headers = new Headers({
         "Location": authURL.toString(),
         "Access-Control-Allow-Origin": "*"
@@ -142,16 +170,19 @@ export default {
       }
 
       const code = url.searchParams.get("code");
-      const returnedState = url.searchParams.get("state");
+      const returnedState =
+        url.searchParams.get("state");
 
       if (!code || !returnedState) {
         return json({
           success: false,
-          error: "Missing authorization code or state"
+          error:
+            "Missing authorization code or state"
         }, 400);
       }
 
-      const cookie = request.headers.get("Cookie") || "";
+      const cookie =
+        request.headers.get("Cookie") || "";
 
       const verifierMatch = cookie.match(
         /(?:^|;\s*)tidal_verifier=([^;]+)/
@@ -164,12 +195,16 @@ export default {
       if (!verifierMatch || !stateMatch) {
         return json({
           success: false,
-          error: "OAuth session expired. Start login again."
+          error:
+            "OAuth session expired. Start login again."
         }, 400);
       }
 
-      const verifier = verifierMatch[1];
-      const savedState = stateMatch[1];
+      const verifier =
+        verifierMatch[1];
+
+      const savedState =
+        stateMatch[1];
 
       if (returnedState !== savedState) {
         return json({
@@ -180,11 +215,30 @@ export default {
 
       const body = new URLSearchParams();
 
-      body.set("grant_type", "authorization_code");
-      body.set("client_id", CLIENT_ID);
-      body.set("code", code);
-      body.set("redirect_uri", REDIRECT_URI);
-      body.set("code_verifier", verifier);
+      body.set(
+        "grant_type",
+        "authorization_code"
+      );
+
+      body.set(
+        "client_id",
+        CLIENT_ID
+      );
+
+      body.set(
+        "code",
+        code
+      );
+
+      body.set(
+        "redirect_uri",
+        REDIRECT_URI
+      );
+
+      body.set(
+        "code_verifier",
+        verifier
+      );
 
       const tokenResponse = await fetch(
         "https://auth.tidal.com/v1/oauth2/token",
@@ -198,29 +252,84 @@ export default {
         }
       );
 
-      const tokenData = await tokenResponse.json();
+      const tokenData =
+        await tokenResponse.json();
 
       if (!tokenResponse.ok) {
         return json({
           success: false,
-          error: "TIDAL token exchange failed",
+          error:
+            "TIDAL token exchange failed",
           details: tokenData
         }, tokenResponse.status);
       }
 
-      return json({
-        success: true,
-        message: "TIDAL authorization successful",
-        token_type: tokenData.token_type,
-        expires_in: tokenData.expires_in,
-        scope: tokenData.scope,
-        access_token_received: Boolean(
-          tokenData.access_token
-        ),
-        refresh_token_received: Boolean(
-          tokenData.refresh_token
-        )
+      /*
+       * Store TIDAL tokens in Cloudflare KV.
+       *
+       * The actual tokens are NOT returned
+       * to the browser.
+       */
+      await env.KV.put(
+        "tidal_tokens",
+        JSON.stringify({
+          access_token:
+            tokenData.access_token,
+
+          refresh_token:
+            tokenData.refresh_token,
+
+          token_type:
+            tokenData.token_type,
+
+          expires_in:
+            tokenData.expires_in,
+
+          saved_at:
+            Date.now()
+        })
+      );
+
+      /*
+       * Clear temporary OAuth cookies.
+       */
+      const headers = new Headers({
+        "Content-Type":
+          "application/json; charset=utf-8",
+        "Access-Control-Allow-Origin": "*"
       });
+
+      headers.append(
+        "Set-Cookie",
+        "tidal_verifier=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0"
+      );
+
+      headers.append(
+        "Set-Cookie",
+        "tidal_state=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0"
+      );
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message:
+            "TIDAL authorization successful and token saved securely.",
+          token_type:
+            tokenData.token_type,
+          expires_in:
+            tokenData.expires_in,
+          scope:
+            tokenData.scope,
+          access_token_saved:
+            Boolean(tokenData.access_token),
+          refresh_token_saved:
+            Boolean(tokenData.refresh_token)
+        }),
+        {
+          status: 200,
+          headers
+        }
+      );
     }
 
     return json({
