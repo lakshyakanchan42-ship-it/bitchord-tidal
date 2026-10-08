@@ -392,12 +392,57 @@ if (url.pathname === "/search") {
 
   const tidalData = await tidalResponse.json();
 
+  if (!tidalResponse.ok) {
+    return json({
+      success: false,
+      tidal_status: tidalResponse.status,
+      error: tidalData
+    }, tidalResponse.status);
+  }
+
+  const included = tidalData.included || [];
+
+  const tracks = included
+    .filter(item => item.type === "tracks")
+    .map(track => {
+      const attributes = track.attributes || {};
+
+      return {
+        id: track.id,
+        title: attributes.title || null,
+        duration: attributes.duration || null,
+        explicit: attributes.explicit || false,
+        releaseDate: attributes.releaseDate || null,
+        mediaTags: attributes.mediaTags || [],
+        accessType: attributes.accessType || null
+      };
+    });
+
+  const artists = included
+    .filter(item => item.type === "artists")
+    .map(artist => ({
+      id: artist.id,
+      name: artist.attributes?.name || null
+    }));
+
+  const albums = included
+    .filter(item => item.type === "albums")
+    .map(album => ({
+      id: album.id,
+      title: album.attributes?.title || null,
+      releaseDate: album.attributes?.releaseDate || null
+    }));
+
   return json({
-    success: tidalResponse.ok,
-    tidal_status: tidalResponse.status,
-    data: tidalData
-  }, tidalResponse.status);
-}
+    success: true,
+    query,
+    results: {
+      tracks,
+      artists,
+      albums
+    }
+  });
+      }
     return json({
       error: "Endpoint not implemented yet"
     }, 404);
