@@ -584,7 +584,7 @@ const tracks = await Promise.all(
         audioQuality = "DOLBY_ATMOS";
         format = "eac3-joc";
       }
-
+       
       return {
         id: track.id,
         title: attributes.title || "Unknown Title",
@@ -602,6 +602,88 @@ const tracks = await Promise.all(
     tracks
   });
          }
+
+    /*
+ * Test TIDAL playback authorization
+ */
+if (url.pathname === "/playback-test") {
+  const trackId = url.searchParams.get("id");
+
+  if (!trackId) {
+    return json({
+      success: false,
+      error: "Missing track ID. Example: /playback-test?id=19953212"
+    }, 400);
+  }
+
+  const stored = await env.KV.get("tidal_tokens");
+
+  if (!stored) {
+    return json({
+      success: false,
+      error: "TIDAL authorization required."
+    }, 401);
+  }
+
+  const tokens = JSON.parse(stored);
+
+  if (!tokens.access_token) {
+    return json({
+      success: false,
+      error: "No TIDAL access token found."
+    }, 401);
+  }
+
+  const manifestURL = new URL(
+    `https://openapi.tidal.com/v2/trackManifests/${trackId}`
+  );
+
+  manifestURL.searchParams.set(
+    "manifestType",
+    "MPEG_DASH"
+  );
+
+  manifestURL.searchParams.set(
+    "formats",
+    "AACLC"
+  );
+
+  manifestURL.searchParams.set(
+    "uriScheme",
+    "HTTPS"
+  );
+
+  manifestURL.searchParams.set(
+    "usage",
+    "PLAYBACK"
+  );
+
+  manifestURL.searchParams.set(
+    "adaptive",
+    "true"
+  );
+
+  const manifestResponse = await fetch(
+    manifestURL.toString(),
+    {
+      method: "GET",
+      headers: {
+        "Authorization":
+          `Bearer ${tokens.access_token}`,
+        "Accept":
+          "application/vnd.api+json"
+      }
+    }
+  );
+
+  return json({
+    success: manifestResponse.ok,
+    tidal_status: manifestResponse.status,
+    track_id: trackId,
+    playback_authorized: manifestResponse.ok
+  }, manifestResponse.ok ? 200 : manifestResponse.status);
+}
+    
     return json({
       error: "Endpoint not implemented yet"
     }, 404);
