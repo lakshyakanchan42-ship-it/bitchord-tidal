@@ -374,7 +374,7 @@ if (url.pathname === "/search") {
 
   tidalURL.searchParams.set(
     "include",
-    "tracks,albums,artists"
+    "tracks.artists,tracks.albums"
   );
 
   const tidalResponse = await fetch(
