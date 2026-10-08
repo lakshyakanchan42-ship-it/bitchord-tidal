@@ -398,7 +398,9 @@ if (url.pathname === "/search") {
     data: tidalData
   }, tidalResponse.status);
 }
+    return json({
+      error: "Endpoint not implemented yet"
+    }, 404);
 
-return json({
-  error: "Endpoint not implemented yet"
-}, 404);
+  }
+};
