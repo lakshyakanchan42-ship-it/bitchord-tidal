@@ -332,8 +332,73 @@ export default {
       );
     }
 
+    /*
+ * TIDAL search
+ */
+if (url.pathname === "/search") {
+  const query = url.searchParams.get("q");
+
+  if (!query) {
     return json({
-      error: "Endpoint not implemented yet"
-    }, 404);
+      success: false,
+      error: "Missing search query. Use /search?q=Espresso"
+    }, 400);
   }
-};
+
+  const stored = await env.KV.get("tidal_tokens");
+
+  if (!stored) {
+    return json({
+      success: false,
+      error: "TIDAL authorization required. Open /oauth/login first."
+    }, 401);
+  }
+
+  const tokens = JSON.parse(stored);
+
+  if (!tokens.access_token) {
+    return json({
+      success: false,
+      error: "No TIDAL access token found."
+    }, 401);
+  }
+
+  const tidalURL = new URL(
+    "https://openapi.tidal.com/v2/searchResults"
+  );
+
+  tidalURL.searchParams.set(
+    "filter[query]",
+    query
+  );
+
+  tidalURL.searchParams.set(
+    "include",
+    "tracks,albums,artists"
+  );
+
+  const tidalResponse = await fetch(
+    tidalURL.toString(),
+    {
+      method: "GET",
+      headers: {
+        "Authorization":
+          `Bearer ${tokens.access_token}`,
+        "Accept":
+          "application/vnd.api+json"
+      }
+    }
+  );
+
+  const tidalData = await tidalResponse.json();
+
+  return json({
+    success: tidalResponse.ok,
+    tidal_status: tidalResponse.status,
+    data: tidalData
+  }, tidalResponse.status);
+}
+
+return json({
+  error: "Endpoint not implemented yet"
+}, 404);
