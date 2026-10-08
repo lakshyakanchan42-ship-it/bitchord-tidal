@@ -1,5 +1,12 @@
 {
   "name": "bitchord-tidal",
   "main": "worker.js",
-  "compatibility_date": "2026-10-08"
+  "compatibility_date": "2026-10-08",
+
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "85789424d14d43a0ad37b38c1c624ccc"
+    }
+  ]
 }
