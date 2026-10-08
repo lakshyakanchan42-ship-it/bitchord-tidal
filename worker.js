@@ -170,6 +170,7 @@ export default {
       }
 
       const code = url.searchParams.get("code");
+
       const returnedState =
         url.searchParams.get("state");
 
@@ -184,13 +185,15 @@ export default {
       const cookie =
         request.headers.get("Cookie") || "";
 
-      const verifierMatch = cookie.match(
-        /(?:^|;\s*)tidal_verifier=([^;]+)/
-      );
+      const verifierMatch =
+        cookie.match(
+          /(?:^|;\s*)tidal_verifier=([^;]+)/
+        );
 
-      const stateMatch = cookie.match(
-        /(?:^|;\s*)tidal_state=([^;]+)/
-      );
+      const stateMatch =
+        cookie.match(
+          /(?:^|;\s*)tidal_state=([^;]+)/
+        );
 
       if (!verifierMatch || !stateMatch) {
         return json({
@@ -213,7 +216,8 @@ export default {
         }, 400);
       }
 
-      const body = new URLSearchParams();
+      const body =
+        new URLSearchParams();
 
       body.set(
         "grant_type",
@@ -240,17 +244,18 @@ export default {
         verifier
       );
 
-      const tokenResponse = await fetch(
-        "https://auth.tidal.com/v1/oauth2/token",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/x-www-form-urlencoded"
-          },
-          body
-        }
-      );
+      const tokenResponse =
+        await fetch(
+          "https://auth.tidal.com/v1/oauth2/token",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/x-www-form-urlencoded"
+            },
+            body
+          }
+        );
 
       const tokenData =
         await tokenResponse.json();
@@ -264,12 +269,6 @@ export default {
         }, tokenResponse.status);
       }
 
-      /*
-       * Store TIDAL tokens in Cloudflare KV.
-       *
-       * The actual tokens are NOT returned
-       * to the browser.
-       */
       await env.KV.put(
         "tidal_tokens",
         JSON.stringify({
@@ -290,14 +289,14 @@ export default {
         })
       );
 
-      /*
-       * Clear temporary OAuth cookies.
-       */
-      const headers = new Headers({
-        "Content-Type":
-          "application/json; charset=utf-8",
-        "Access-Control-Allow-Origin": "*"
-      });
+      const headers =
+        new Headers({
+          "Content-Type":
+            "application/json; charset=utf-8",
+
+          "Access-Control-Allow-Origin":
+            "*"
+        });
 
       headers.append(
         "Set-Cookie",
@@ -312,18 +311,28 @@ export default {
       return new Response(
         JSON.stringify({
           success: true,
+
           message:
             "TIDAL authorization successful and token saved securely.",
+
           token_type:
             tokenData.token_type,
+
           expires_in:
             tokenData.expires_in,
+
           scope:
             tokenData.scope,
+
           access_token_saved:
-            Boolean(tokenData.access_token),
+            Boolean(
+              tokenData.access_token
+            ),
+
           refresh_token_saved:
-            Boolean(tokenData.refresh_token)
+            Boolean(
+              tokenData.refresh_token
+            )
         }),
         {
           status: 200,
@@ -333,360 +342,384 @@ export default {
     }
 
     /*
- * TIDAL search
- */
-if (url.pathname === "/search") {
-  const query = url.searchParams.get("q");
+     * TIDAL search
+     */
+    if (url.pathname === "/search") {
+      const query =
+        url.searchParams.get("q");
 
-  if (!query) {
-    return json({
-      success: false,
-      error: "Missing search query"
-    }, 400);
-  }
-
-  const stored = await env.KV.get("tidal_tokens");
-
-  if (!stored) {
-    return json({
-      success: false,
-      error: "TIDAL authorization required. Open /oauth/login first."
-    }, 401);
-  }
-
-  const tokens = JSON.parse(stored);
-
-  if (!tokens.access_token) {
-    return json({
-      success: false,
-      error: "No TIDAL access token found."
-    }, 401);
-  }
-
-  const tidalURL = new URL(
-    "https://openapi.tidal.com/v2/searchResults"
-  );
-
-  tidalURL.searchParams.set(
-    "filter[query]",
-    query
-  );
-
-  tidalURL.searchParams.set(
-    "include",
-    "tracks.artists,tracks.albums"
-  );
-
-  const tidalResponse = await fetch(
-    tidalURL.toString(),
-    {
-      method: "GET",
-      headers: {
-        "Authorization":
-          `Bearer ${tokens.access_token}`,
-        "Accept":
-          "application/vnd.api+json"
+      if (!query) {
+        return json({
+          success: false,
+          error: "Missing search query"
+        }, 400);
       }
-    }
-  );
 
-  const tidalData = await tidalResponse.json();
-
-  if (!tidalResponse.ok) {
-    return json({
-      success: false,
-      tidal_status: tidalResponse.status,
-      error: tidalData
-    }, tidalResponse.status);
-  }
-
-  const included = tidalData.included || [];
-
-const searchTracks = included.filter(
-  item => item.type === "tracks"
-);
-
-const tracks = await Promise.all(
-  searchTracks.map(async track => {
-    const attributes = track.attributes || {};
-
-    let artist = "Unknown Artist";
-    let album = "Unknown Album";
-
-    try {
-      const trackURL = new URL(
-        `https://openapi.tidal.com/v2/tracks/${track.id}`
-      );
-
-      trackURL.searchParams.set(
-        "include",
-        "artists,albums"
-      );
-
-      const trackResponse = await fetch(
-        trackURL.toString(),
-        {
-          method: "GET",
-          headers: {
-            "Authorization":
-              `Bearer ${tokens.access_token}`,
-            "Accept":
-              "application/vnd.api+json"
-          }
-        }
-      );
-
-      if (trackResponse.ok) {
-        const trackData =
-          await trackResponse.json();
-
-        const trackIncluded =
-          trackData.included || [];
-
-        const artistItem =
-          trackIncluded.find(
-            item => item.type === "artists"
-          );
-
-        const albumItem =
-          trackIncluded.find(
-            item => item.type === "albums"
-          );
-
-        artist =
-          artistItem?.attributes?.name ||
-          "Unknown Artist";
-
-        album =
-          albumItem?.attributes?.title ||
-          "Unknown Album";
-      }
-    } catch (error) {
-      // Keep fallback names if metadata lookup fails.
-    }
-
-    const durationString =
-      attributes.duration || "";
-
-    const durationMatch =
-      durationString.match(
-        /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?/
-      );
-
-    let duration = 0;
-
-    if (durationMatch) {
-      duration =
-        Number(durationMatch[1] || 0) * 3600 +
-        Number(durationMatch[2] || 0) * 60 +
-        Number(durationMatch[3] || 0);
-    }
-
-    const mediaTags =
-      attributes.mediaTags || [];
-
-    let audioQuality = "HIGH";
-    let format = "aac";
-
-    if (
-      mediaTags.includes("HIRES_LOSSLESS") ||
-      mediaTags.includes("LOSSLESS")
-    ) {
-      audioQuality =
-        mediaTags.includes("HIRES_LOSSLESS")
-          ? "HIRES_LOSSLESS"
-          : "LOSSLESS";
-
-      format = "flac";
-    }
-
-    if (mediaTags.includes("DOLBY_ATMOS")) {
-      audioQuality = "DOLBY_ATMOS";
-      format = "eac3-joc";
-    }
-
-    return {
-      id: track.id,
-      title:
-        attributes.title || "Unknown Title",
-      artist,
-      album,
-      duration,
-      format,
-      audioQuality
-    };
-  })
-);
-
-  for (const item of included) {
-    if (item.type === "artists") {
-      artists[item.id] =
-        item.attributes?.name || "Unknown Artist";
-    }
-  }
-
-  const albums = {};
-
-  for (const item of included) {
-    if (item.type === "albums") {
-      albums[item.id] =
-        item.attributes?.title || "Unknown Album";
-    }
-  }
-
-  const tracks = included
-    .filter(item => item.type === "tracks")
-    .map(track => {
-      const attributes = track.attributes || {};
-      const relationships = track.relationships || {};
-
-      const artistId =
-        relationships.artists?.data?.[0]?.id;
-
-      const albumId =
-        relationships.albums?.data?.[0]?.id;
-
-      const durationString =
-        attributes.duration || "";
-
-      const durationMatch =
-        durationString.match(
-          /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?/
+      const stored =
+        await env.KV.get(
+          "tidal_tokens"
         );
 
-      let duration = 0;
-
-      if (durationMatch) {
-        duration =
-          Number(durationMatch[1] || 0) * 3600 +
-          Number(durationMatch[2] || 0) * 60 +
-          Number(durationMatch[3] || 0);
+      if (!stored) {
+        return json({
+          success: false,
+          error:
+            "TIDAL authorization required. Open /oauth/login first."
+        }, 401);
       }
 
-      const mediaTags =
-        attributes.mediaTags || [];
+      const tokens =
+        JSON.parse(stored);
 
-      let audioQuality = "HIGH";
-      let format = "aac";
-
-      if (
-        mediaTags.includes("HIRES_LOSSLESS") ||
-        mediaTags.includes("LOSSLESS")
-      ) {
-        audioQuality = mediaTags.includes("HIRES_LOSSLESS")
-          ? "HIRES_LOSSLESS"
-          : "LOSSLESS";
-
-        format = "flac";
+      if (!tokens.access_token) {
+        return json({
+          success: false,
+          error:
+            "No TIDAL access token found."
+        }, 401);
       }
 
-      if (mediaTags.includes("DOLBY_ATMOS")) {
-        audioQuality = "DOLBY_ATMOS";
-        format = "eac3-joc";
-      }
-       
-      return {
-        id: track.id,
-        title: attributes.title || "Unknown Title",
-        artist:
-          artists[artistId] || "Unknown Artist",
-        album:
-          albums[albumId] || "Unknown Album",
-        duration,
-        format,
-        audioQuality
-      };
-    });
+      const tidalURL =
+        new URL(
+          "https://openapi.tidal.com/v2/searchResults"
+        );
 
-  return json({
-    tracks
-  });
-         }
+      tidalURL.searchParams.set(
+        "filter[query]",
+        query
+      );
+
+      tidalURL.searchParams.set(
+        "include",
+        "tracks.artists,tracks.albums"
+      );
+
+      const tidalResponse =
+        await fetch(
+          tidalURL.toString(),
+          {
+            method: "GET",
+
+            headers: {
+              "Authorization":
+                `Bearer ${tokens.access_token}`,
+
+              "Accept":
+                "application/vnd.api+json"
+            }
+          }
+        );
+
+      const tidalData =
+        await tidalResponse.json();
+
+      if (!tidalResponse.ok) {
+        return json({
+          success: false,
+
+          tidal_status:
+            tidalResponse.status,
+
+          error:
+            tidalData
+        }, tidalResponse.status);
+      }
+
+      const included =
+        tidalData.included || [];
+
+      const searchTracks =
+        included.filter(
+          item =>
+            item.type === "tracks"
+        );
+
+      const tracks =
+        await Promise.all(
+          searchTracks.map(
+            async track => {
+
+              const attributes =
+                track.attributes || {};
+
+              let artist =
+                "Unknown Artist";
+
+              let album =
+                "Unknown Album";
+
+              try {
+                const trackURL =
+                  new URL(
+                    `https://openapi.tidal.com/v2/tracks/${track.id}`
+                  );
+
+                trackURL.searchParams.set(
+                  "include",
+                  "artists,albums"
+                );
+
+                const trackResponse =
+                  await fetch(
+                    trackURL.toString(),
+                    {
+                      method: "GET",
+
+                      headers: {
+                        "Authorization":
+                          `Bearer ${tokens.access_token}`,
+
+                        "Accept":
+                          "application/vnd.api+json"
+                      }
+                    }
+                  );
+
+                if (trackResponse.ok) {
+
+                  const trackData =
+                    await trackResponse.json();
+
+                  const trackIncluded =
+                    trackData.included || [];
+
+                  const artistItem =
+                    trackIncluded.find(
+                      item =>
+                        item.type ===
+                        "artists"
+                    );
+
+                  const albumItem =
+                    trackIncluded.find(
+                      item =>
+                        item.type ===
+                        "albums"
+                    );
+
+                  artist =
+                    artistItem?.attributes?.name ||
+                    "Unknown Artist";
+
+                  album =
+                    albumItem?.attributes?.title ||
+                    "Unknown Album";
+                }
+
+              } catch (error) {
+                // Keep fallback names.
+              }
+
+              const durationString =
+                attributes.duration || "";
+
+              const durationMatch =
+                durationString.match(
+                  /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?/
+                );
+
+              let duration = 0;
+
+              if (durationMatch) {
+
+                duration =
+                  Number(
+                    durationMatch[1] || 0
+                  ) * 3600 +
+
+                  Number(
+                    durationMatch[2] || 0
+                  ) * 60 +
+
+                  Number(
+                    durationMatch[3] || 0
+                  );
+              }
+
+              const mediaTags =
+                attributes.mediaTags || [];
+
+              let audioQuality =
+                "HIGH";
+
+              let format =
+                "aac";
+
+              if (
+                mediaTags.includes(
+                  "HIRES_LOSSLESS"
+                ) ||
+                mediaTags.includes(
+                  "LOSSLESS"
+                )
+              ) {
+
+                audioQuality =
+                  mediaTags.includes(
+                    "HIRES_LOSSLESS"
+                  )
+                    ? "HIRES_LOSSLESS"
+                    : "LOSSLESS";
+
+                format =
+                  "flac";
+              }
+
+              if (
+                mediaTags.includes(
+                  "DOLBY_ATMOS"
+                )
+              ) {
+
+                audioQuality =
+                  "DOLBY_ATMOS";
+
+                format =
+                  "eac3-joc";
+              }
+
+              return {
+                id:
+                  track.id,
+
+                title:
+                  attributes.title ||
+                  "Unknown Title",
+
+                artist,
+
+                album,
+
+                duration,
+
+                format,
+
+                audioQuality
+              };
+            }
+          )
+        );
+
+      return json({
+        tracks
+      });
+    }
 
     /*
- * Test TIDAL playback authorization
- */
-if (url.pathname === "/playback-test") {
-  const trackId = url.searchParams.get("id");
+     * Test TIDAL playback authorization
+     */
+    if (
+      url.pathname ===
+      "/playback-test"
+    ) {
 
-  if (!trackId) {
-    return json({
-      success: false,
-      error: "Missing track ID. Example: /playback-test?id=19953212"
-    }, 400);
-  }
+      const trackId =
+        url.searchParams.get(
+          "id"
+        );
 
-  const stored = await env.KV.get("tidal_tokens");
-
-  if (!stored) {
-    return json({
-      success: false,
-      error: "TIDAL authorization required."
-    }, 401);
-  }
-
-  const tokens = JSON.parse(stored);
-
-  if (!tokens.access_token) {
-    return json({
-      success: false,
-      error: "No TIDAL access token found."
-    }, 401);
-  }
-
-  const manifestURL = new URL(
-    `https://openapi.tidal.com/v2/trackManifests/${trackId}`
-  );
-
-  manifestURL.searchParams.set(
-    "manifestType",
-    "MPEG_DASH"
-  );
-
-  manifestURL.searchParams.set(
-    "formats",
-    "AACLC"
-  );
-
-  manifestURL.searchParams.set(
-    "uriScheme",
-    "HTTPS"
-  );
-
-  manifestURL.searchParams.set(
-    "usage",
-    "PLAYBACK"
-  );
-
-  manifestURL.searchParams.set(
-    "adaptive",
-    "true"
-  );
-
-  const manifestResponse = await fetch(
-    manifestURL.toString(),
-    {
-      method: "GET",
-      headers: {
-        "Authorization":
-          `Bearer ${tokens.access_token}`,
-        "Accept":
-          "application/vnd.api+json"
+      if (!trackId) {
+        return json({
+          success: false,
+          error:
+            "Missing track ID"
+        }, 400);
       }
+
+      const stored =
+        await env.KV.get(
+          "tidal_tokens"
+        );
+
+      if (!stored) {
+        return json({
+          success: false,
+          error:
+            "TIDAL authorization required"
+        }, 401);
+      }
+
+      const tokens =
+        JSON.parse(stored);
+
+      if (!tokens.access_token) {
+        return json({
+          success: false,
+          error:
+            "No TIDAL access token found"
+        }, 401);
+      }
+
+      const manifestURL =
+        new URL(
+          `https://openapi.tidal.com/v2/trackManifests/${trackId}`
+        );
+
+      manifestURL.searchParams.set(
+        "manifestType",
+        "MPEG_DASH"
+      );
+
+      manifestURL.searchParams.set(
+        "formats",
+        "AACLC"
+      );
+
+      manifestURL.searchParams.set(
+        "uriScheme",
+        "HTTPS"
+      );
+
+      manifestURL.searchParams.set(
+        "usage",
+        "PLAYBACK"
+      );
+
+      manifestURL.searchParams.set(
+        "adaptive",
+        "true"
+      );
+
+      const manifestResponse =
+        await fetch(
+          manifestURL.toString(),
+          {
+            method: "GET",
+
+            headers: {
+              "Authorization":
+                `Bearer ${tokens.access_token}`,
+
+              "Accept":
+                "application/vnd.api+json"
+            }
+          }
+        );
+
+      return json({
+
+        success:
+          manifestResponse.ok,
+
+        tidal_status:
+          manifestResponse.status,
+
+        track_id:
+          trackId,
+
+        playback_authorized:
+          manifestResponse.ok
+
+      },
+        manifestResponse.ok
+          ? 200
+          : manifestResponse.status
+      );
     }
-  );
 
-  return json({
-    success: manifestResponse.ok,
-    tidal_status: manifestResponse.status,
-    track_id: trackId,
-    playback_authorized: manifestResponse.ok
-  }, manifestResponse.ok ? 200 : manifestResponse.status);
-}
-    
     return json({
-      error: "Endpoint not implemented yet"
+      error:
+        "Endpoint not implemented yet"
     }, 404);
-
   }
 };
